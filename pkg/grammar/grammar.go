@@ -799,7 +799,7 @@ func ParseJenkinsfile(jenkinsfile string) (*Model, error) {
 	err = parser.ParseString(replacedJF, model)
 
 	if err != nil {
-		return nil, errors.Wrapf(err, "Jenkinsfile %s cannot be translated", jenkinsfile)
+		return nil, errors.Wrapf(err, "Jenkinsfile %s cannot be parsed. It may contain code outside of the pipeline {} block, or it may not have a pipeline {} block at all.", jenkinsfile)
 	}
 
 	return model, nil
