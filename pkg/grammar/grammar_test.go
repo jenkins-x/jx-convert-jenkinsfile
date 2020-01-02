@@ -57,12 +57,15 @@ func TestParsingGrammar(t *testing.T) {
 			name:       "unparseable",
 			parseError: "It may contain code outside of the pipeline {} block, or it may not have a pipeline {} block at all.",
 		},
+		{
+			name: "multi_nested_steps",
+		},
+		{
+			name: "invalid_sh_calls",
+		},
 	}
 
 	for _, tt := range testCases {
-		if tt.name != "invalid_stage_level" {
-			continue
-		}
 		t.Run(tt.name, func(t *testing.T) {
 			testDir := filepath.Join("test_data", tt.name)
 			_, err := os.Stat(testDir)

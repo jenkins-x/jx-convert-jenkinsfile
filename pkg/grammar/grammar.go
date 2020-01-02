@@ -314,33 +314,38 @@ type ModelEnvironmentEntry struct {
 }
 
 func toEnvYamlLines(modelVars []*ModelEnvironmentEntry) ([]string, error) {
+	var invalidVars []string
 	var envVars []corev1.EnvVar
 	for _, e := range modelVars {
-		envVars = append(envVars, e.ToJXEnv()...)
+		convertedVars, isInvalid := e.ToJXEnv()
+		if isInvalid {
+			invalidVars = append(invalidVars, fmt.Sprintf("# The variable '%s' has the value '%s', which cannot be converted.", e.Key, e.Value.ToString()))
+		} else {
+			envVars = append(envVars, convertedVars...)
+		}
 	}
 	if len(envVars) == 0 {
 		return nil, nil
 	}
-	// TODO: Error handling probably
 	envYamlBytes, err := yaml.Marshal(envVars)
 	if err != nil {
 		return nil, err
 	}
 	// Trim off the last line of "    \n" if it's there.
 	envYaml := strings.TrimSpace(string(envYamlBytes))
-	return strings.Split(envYaml, "\n"), nil
+	return append(invalidVars, strings.Split(envYaml, "\n")...), nil
 }
 
 // ToJXEnv converts to jenkins-x.yml friendly environment variables
-func (m *ModelEnvironmentEntry) ToJXEnv() []corev1.EnvVar {
+func (m *ModelEnvironmentEntry) ToJXEnv() ([]corev1.EnvVar, bool) {
 	for _, e := range unusedEnvVars {
 		if m.Key == e {
-			return nil
+			return nil, false
 		}
 	}
-	// TODO: Warning comment for values with $
+
 	if m.Value.StringValue != nil && strings.Contains(*m.Value.StringValue, "$") {
-		return nil
+		return nil, true
 	}
 	if m.Value.Credential != nil {
 		// Special handling of CHARTMUSEUM_CREDS
@@ -368,14 +373,14 @@ func (m *ModelEnvironmentEntry) ToJXEnv() []corev1.EnvVar {
 						},
 					},
 				},
-			}
+			}, false
 		}
 	}
 
 	return []corev1.EnvVar{{
 		Name:  m.Key,
 		Value: *m.Value.StringValue,
-	}}
+	}}, false
 }
 
 // ModelEnvironmentEntryValue represents either a string or a credentials step's value
@@ -403,8 +408,6 @@ type ModelStage struct {
 
 // toImageAndSteps converts the model to jenkins-x.yml representation
 func (m *ModelStage) toImageAndSteps() (string, []string, bool) {
-	// TODO: Unsupported post, input et al
-
 	var stepLines []string
 
 	var baseSteps []stepDirAndImage
@@ -432,33 +435,32 @@ func (m *ModelStage) toImageAndSteps() (string, []string, bool) {
 
 	for _, s := range stepsToInclude {
 		var singleStep []string
+
 		if s.step.Name == "sh" {
 			if len(s.step.Args) != 1 {
-				// TODO: Something about how the other sh parameters don't translate
-			}
-			arg := s.step.Args[0]
-			if arg.Unnamed == nil {
-				// TODO: Something about how named arguments don't translate
-			}
-			singleStep = append(singleStep, indentLine(fmt.Sprintf("sh: %s", s.step.getJxArg()), 8))
+				conversionIssues = true
+				singleStep = append(singleStep, linesForInvalidStep(s.step, "Additional parameters to the Jenkins Pipeline sh step are not supported")...)
+			} else {
+				arg := s.step.Args[0]
+				if arg.Unnamed == nil {
+					conversionIssues = true
+					singleStep = append(singleStep, linesForInvalidStep(s.step, "Named parameters to the Jenkins Pipeline sh step are not supported")...)
+				} else {
+					singleStep = append(singleStep, indentLine(fmt.Sprintf("sh: %s", s.step.getJxArg()), 8))
 
-			if s.image != image {
-				singleStep = append(singleStep, indentLine(fmt.Sprintf("image: %s", s.image), 8))
-			}
-			if s.dir != "" {
-				singleStep = append(singleStep, indentLine(fmt.Sprintf("dir: %s", s.dir), 8))
+					if s.image != image {
+						singleStep = append(singleStep, indentLine(fmt.Sprintf("image: %s", s.image), 8))
+					}
+					if s.dir != "" {
+						singleStep = append(singleStep, indentLine(fmt.Sprintf("dir: %s", s.dir), 8))
+					}
+				}
 			}
 		} else {
 			// Not a valid step, so add a boilerplate "echo 'step (name) can't be translated' && exit 1" sh, and a
 			// comment with the original text
 			conversionIssues = true
-			singleStep = append(singleStep, indentLine(fmt.Sprintf("# The Jenkins Pipeline step %s cannot be translated directly.", s.step.Name), 8))
-			singleStep = append(singleStep, indentLine("# You may want to consider adding a shell script to your repository that replicates its behavior.", 8))
-			singleStep = append(singleStep, indentLine("# Original step from Jenkinsfile:", 8))
-			for _, l := range strings.Split(s.step.toOriginalGroovy(), "\n") {
-				singleStep = append(singleStep, indentLine("# "+l, 8))
-			}
-			singleStep = append(singleStep, indentLine(fmt.Sprintf("sh: echo 'Invalid step %s, failing' && exit 1", s.step.Name), 8))
+			singleStep = append(singleStep, linesForInvalidStep(s.step, "")...)
 		}
 		if len(singleStep) > 0 {
 			stepLines = append(stepLines, strings.Join(singleStep, "\n"))
@@ -466,6 +468,24 @@ func (m *ModelStage) toImageAndSteps() (string, []string, bool) {
 	}
 
 	return image, stepLines, conversionIssues
+}
+
+func linesForInvalidStep(step *ModelStep, reason string) []string {
+	var stepLines []string
+
+	stepLines = append(stepLines, indentLine(fmt.Sprintf("# The Jenkins Pipeline step %s cannot be translated directly.", step.Name), 8))
+	if reason != "" {
+		stepLines = append(stepLines, indentLine(fmt.Sprintf("# %s", reason), 8))
+	} else {
+		stepLines = append(stepLines, indentLine("# You may want to consider adding a shell script to your repository that replicates its behavior.", 8))
+	}
+	stepLines = append(stepLines, indentLine("# Original step from Jenkinsfile:", 8))
+	for _, l := range strings.Split(step.toOriginalGroovy(), "\n") {
+		stepLines = append(stepLines, indentLine("# "+l, 8))
+	}
+	stepLines = append(stepLines, indentLine(fmt.Sprintf("sh: echo 'Invalid step %s, failing' && exit 1", step.Name), 8))
+
+	return stepLines
 }
 
 func indentLine(line string, count int) string {
@@ -668,11 +688,8 @@ func (m *ModelStep) toOriginalGroovy() string {
 			}
 			lines = append(lines, fmt.Sprintf("%s(%s)", m.Name, strings.Join(argStrings, ", ")))
 		}
-	} else {
-		// TODO: Something about nested steps? I think we covered all of these already via the escaping magic...
 	}
 
-	// TODO: Probably should be splitting toCurlyStringFromEscaped above rather than joining everything and resplitting where we call this but for now? eh.
 	return strings.Join(lines, "\n")
 }
 

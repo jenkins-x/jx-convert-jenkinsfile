@@ -1,0 +1,67 @@
+buildPack: none
+pipelineConfig:
+  env:
+    - name: ORG
+      value: REPLACE_ME_ORG
+    - name: CHARTMUSEUM_CREDS_USR
+      valueFrom:
+        secretKeyRef:
+          key: BASIC_AUTH_USER
+          name: jenkins-x-chartmuseum
+    - name: CHARTMUSEUM_CREDS_PSW
+      valueFrom:
+        secretKeyRef:
+          key: BASIC_AUTH_PASS
+          name: jenkins-x-chartmuseum
+  pipelines:
+    pullRequest:
+      pipeline:
+        stages:
+          - name: PR Build
+            agent:
+              image: maven
+            steps:
+              - name: step0
+                # The Jenkins Pipeline step sh cannot be translated directly.
+                # Named parameters to the Jenkins Pipeline sh step are not supported
+                # Original step from Jenkinsfile:
+                # sh(script: "mvn versions:set -DnewVersion=$PREVIEW_VERSION")
+                sh: echo 'Invalid step sh, failing' && exit 1
+              - name: step1
+                # The Jenkins Pipeline step sh cannot be translated directly.
+                # Additional parameters to the Jenkins Pipeline sh step are not supported
+                # Original step from Jenkinsfile:
+                # sh(script: "mvn install", returnStdout: true)
+                sh: echo 'Invalid step sh, failing' && exit 1
+              - name: step2
+                sh: export VERSION=$PREVIEW_VERSION && skaffold build -f skaffold.yaml
+              - name: step3
+                sh: jx step post build --image $DOCKER_REGISTRY/$ORG/$APP_NAME:$PREVIEW_VERSION
+              - name: step4
+                sh: make preview
+                dir: charts/preview
+              - name: step5
+                sh: jx preview --app $APP_NAME --dir ../..
+                dir: charts/preview
+    release:
+      pipeline:
+        stages:
+          - name: Release Build
+            agent:
+              image: maven
+            steps:
+              - name: step0
+                sh: mvn clean deploy
+              - name: step1
+                sh: export VERSION=${inputs.params.version} && skaffold build -f skaffold.yaml
+              - name: step2
+                sh: jx step post build --image $DOCKER_REGISTRY/$ORG/$APP_NAME:${inputs.params.version}
+              - name: step3
+                sh: jx step changelog --version v${inputs.params.version}
+                dir: charts/REPLACE_ME_APP_NAME
+              - name: step4
+                sh: jx step helm release
+                dir: charts/REPLACE_ME_APP_NAME
+              - name: step5
+                sh: jx promote -b --all-auto --timeout 1h --version ${inputs.params.version}
+                dir: charts/REPLACE_ME_APP_NAME
