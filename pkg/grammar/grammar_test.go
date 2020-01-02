@@ -18,37 +18,48 @@ func TestParsingGrammar(t *testing.T) {
 	ctx := context.Background()
 
 	testCases := []struct {
-		name string
+		name          string
+		convertIssues bool
 	}{
 		{
-			name: "basic",
+			name:          "basic",
+			convertIssues: false,
 		},
 		{
-			name: "script",
+			name:          "script",
+			convertIssues: true,
 		},
 		{
-			name: "invalid_top_level",
+			name:          "invalid_top_level",
+			convertIssues: true,
 		},
 		{
-			name: "invalid_stage_level",
+			name:          "invalid_stage_level",
+			convertIssues: true,
 		},
 		{
-			name: "invalid_when",
+			name:          "invalid_when",
+			convertIssues: true,
 		},
 		{
-			name: "unsupported_step",
+			name:          "unsupported_step",
+			convertIssues: true,
 		},
 		{
-			name: "multiple_top_level_post_kind",
+			name:          "multiple_top_level_post_kind",
+			convertIssues: true,
 		},
 		{
-			name: "multiple_top_level_post_step",
+			name:          "multiple_top_level_post_step",
+			convertIssues: true,
 		},
 		{
-			name: "nondefault_top_level_post_kind",
+			name:          "nondefault_top_level_post_kind",
+			convertIssues: true,
 		},
 		{
-			name: "nondefault_top_level_post_step",
+			name:          "nondefault_top_level_post_step",
+			convertIssues: true,
 		},
 	}
 
@@ -66,9 +77,14 @@ func TestParsingGrammar(t *testing.T) {
 			model, err := grammar.ParseJenkinsfile(jf)
 			assert.NoError(t, err)
 
-			asYaml, err := model.ToYaml()
+			asYaml, convertIssues, err := model.ToYaml()
 			assert.NoError(t, err)
 
+			if tt.convertIssues {
+				assert.Equal(t, tt.convertIssues, convertIssues, "Expected to find conversion issues but there were none")
+			} else {
+				assert.Equal(t, tt.convertIssues, convertIssues, "Expected no conversion issues, but there were issues")
+			}
 			t.Log("\n" + asYaml)
 
 			yamlOutFile, err := ioutil.TempFile("", "test-grammar-jx-yml-")

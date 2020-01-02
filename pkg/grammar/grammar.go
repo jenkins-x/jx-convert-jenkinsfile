@@ -118,17 +118,16 @@ func (m *Model) getUnsupported() []*UnsupportedModelBlock {
 }
 
 // ToYaml converts the Jenkinsfile model into jenkins-x.yml
-func (m *Model) ToYaml() (string, error) {
-	// TODO: Everything that isn't stages
-
+func (m *Model) ToYaml() (string, bool, error) {
 	var lines []string
+	conversionIssues := false
 
 	lines = append(lines, "buildPack: none")
 	lines = append(lines, "pipelineConfig:")
 
 	envLines, err := toEnvYamlLines(m.getEnvironment())
 	if err != nil {
-		return "", err
+		return "", conversionIssues, err
 	}
 	if len(envLines) > 0 {
 		lines = append(lines, indentLine("env:", 1))
@@ -140,10 +139,12 @@ func (m *Model) ToYaml() (string, error) {
 	lines = append(lines, indentLine("pipelines:", 1))
 	post := m.getPost()
 	if len(post) > 1 || (len(post) == 1 && !post[0].isDefaultCleanWs()) {
+		conversionIssues = true
 		lines = append(lines, indentLine("# The Jenkinsfile contains a post directive for its pipeline. This is not converted.", 2))
 		lines = append(lines, indentLine("# There is no equivalent behavior in Jenkins X pipelines.", 2))
 	}
 	for _, u := range m.getUnsupported() {
+		conversionIssues = true
 		lines = append(lines, indentLine(fmt.Sprintf("# The Jenkinsfile contains the %s directive for its pipeline. This is not converted.", u.Name), 2))
 		lines = append(lines, indentLine("# There is no equivalent behavior in Jenkins X pipelines.", 2))
 	}
@@ -169,32 +170,38 @@ func (m *Model) ToYaml() (string, error) {
 
 		post := s.getPost()
 		if len(post) > 0 {
+			conversionIssues = true
 			lines = append(lines, indentLine(fmt.Sprintf("# The Jenkinsfile contains a post directive for the stage '%s'. This is not converted.", s.Name), 2))
 			lines = append(lines, indentLine("# There is no equivalent behavior in Jenkins X pipelines.", 2))
 		}
 
 		for _, u := range s.getUnsupported() {
+			conversionIssues = true
 			lines = append(lines, indentLine(fmt.Sprintf("# The Jenkinsfile contains the %s directive for the stage '%s'. This is not converted.", u.Name, s.Name), 2))
 			lines = append(lines, indentLine("# There is no equivalent behavior in Jenkins X pipelines.", 2))
 		}
 	}
 
-	prLines, err := prOrReleasePipelineAsYAML(prStages, false)
+	prLines, hasIssuesInPr, err := prOrReleasePipelineAsYAML(prStages, false)
 	if err != nil {
-		return "", err
+		return "", conversionIssues, err
 	}
-	releaseLines, err := prOrReleasePipelineAsYAML(releaseStages, true)
+	releaseLines, hasIssuesInRelease, err := prOrReleasePipelineAsYAML(releaseStages, true)
 	if err != nil {
-		return "", err
+		return "", conversionIssues, err
+	}
+	if hasIssuesInPr || hasIssuesInRelease {
+		conversionIssues = true
 	}
 	lines = append(lines, prLines)
 	lines = append(lines, releaseLines)
 
-	return strings.Join(lines, "\n"), nil
+	return strings.Join(lines, "\n"), conversionIssues, nil
 }
 
-func prOrReleasePipelineAsYAML(stages []*ModelStage, isRelease bool) (string, error) {
+func prOrReleasePipelineAsYAML(stages []*ModelStage, isRelease bool) (string, bool, error) {
 	var lines []string
+	conversionIssues := false
 	stepCount := 0
 
 	envVars := make(map[string]*ModelEnvironmentEntry)
@@ -220,9 +227,12 @@ func prOrReleasePipelineAsYAML(stages []*ModelStage, isRelease bool) (string, er
 	lines = append(lines, indentLine("- name: "+stageName, 5))
 
 	for _, s := range stages {
-		stageImage, stageSteps := s.toImageAndSteps()
+		stageImage, stageSteps, stageIssues := s.toImageAndSteps()
 		if image == "" {
 			image = stageImage
+		}
+		if stageIssues {
+			conversionIssues = true
 		}
 		// Deduplicate env vars
 		for _, env := range s.getEnvironment() {
@@ -243,7 +253,7 @@ func prOrReleasePipelineAsYAML(stages []*ModelStage, isRelease bool) (string, er
 	}
 	envYamlLines, err := toEnvYamlLines(envList)
 	if err != nil {
-		return "", err
+		return "", conversionIssues, err
 	}
 	if len(envYamlLines) > 0 {
 		lines = append(lines, indentLine("environment:", 6))
@@ -253,6 +263,7 @@ func prOrReleasePipelineAsYAML(stages []*ModelStage, isRelease bool) (string, er
 	}
 	lines = append(lines, indentLine("steps:", 6))
 	if len(stepLines) == 0 {
+		conversionIssues = true
 		lines = append(lines, indentLine("# No stages were found that will be run in the "+longTypeName+" pipeline.", 7))
 		lines = append(lines, indentLine("- name: step0", 7))
 		lines = append(lines, indentLine("sh: echo 'No "+longTypeName+" stages found, failing' && exit 1", 8))
@@ -263,7 +274,7 @@ func prOrReleasePipelineAsYAML(stages []*ModelStage, isRelease bool) (string, er
 		stepCount++
 	}
 
-	return strings.Join(lines, "\n"), nil
+	return strings.Join(lines, "\n"), conversionIssues, nil
 }
 
 // UnsupportedModelBlock represents a field that is unsupported and will cause an error.
@@ -391,12 +402,14 @@ type ModelStage struct {
 }
 
 // toImageAndSteps converts the model to jenkins-x.yml representation
-func (m *ModelStage) toImageAndSteps() (string, []string) {
+func (m *ModelStage) toImageAndSteps() (string, []string, bool) {
 	// TODO: Unsupported post, input et al
 
 	var stepLines []string
 
 	var baseSteps []stepDirAndImage
+
+	conversionIssues := false
 
 	// Use the maven pod template as a default
 	image := "maven"
@@ -438,6 +451,7 @@ func (m *ModelStage) toImageAndSteps() (string, []string) {
 		} else {
 			// Not a valid step, so add a boilerplate "echo 'step (name) can't be translated' && exit 1" sh, and a
 			// comment with the original text
+			conversionIssues = true
 			singleStep = append(singleStep, indentLine(fmt.Sprintf("# The Jenkins Pipeline step %s cannot be translated directly.", s.step.Name), 8))
 			singleStep = append(singleStep, indentLine("# You may want to consider adding a shell script to your repository that replicates its behavior.", 8))
 			singleStep = append(singleStep, indentLine("# Original step from Jenkinsfile:", 8))
@@ -451,7 +465,7 @@ func (m *ModelStage) toImageAndSteps() (string, []string) {
 		}
 	}
 
-	return image, stepLines
+	return image, stepLines, conversionIssues
 }
 
 func indentLine(line string, count int) string {

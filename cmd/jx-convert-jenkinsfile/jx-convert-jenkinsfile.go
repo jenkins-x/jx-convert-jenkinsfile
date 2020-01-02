@@ -3,14 +3,16 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"os"
+	"path/filepath"
 
 	"github.com/abayer/jx-convert-jenkinsfile/pkg/grammar"
 )
 
 func main() {
 
-	dir := flag.String("dir", ".", "the folder to look for a Jenkinsfile. Defaults to the current directory.")
+	dir := flag.String("dir", ".", "the folder to look for a Jenkinsfile and to write the jenkins-x.yml. Defaults to the current directory.")
 
 	flag.Parse()
 
@@ -21,13 +23,20 @@ func main() {
 		os.Exit(1)
 	}
 
-	asYaml, err := model.ToYaml()
+	asYaml, convertIssues, err := model.ToYaml()
 	if err != nil {
-		fmt.Println("Error generating jenkins-x.yml: ", err)
+		fmt.Println("Error converting jenkins-x.yml: ", err)
 		os.Exit(1)
 	}
+	jxYmlFile := filepath.Join(*dir, "jenkins-x.yml")
+	err = ioutil.WriteFile(jxYmlFile, []byte(asYaml), 0644)
+	if err != nil {
+		fmt.Printf("Error writing to jenkins-x.yml in %s: %s\n", *dir, err)
+		os.Exit(1)
+	}
+
 	fmt.Printf("Converted jenkins-x.yml for Jenkinsfile in %s:\n", *dir)
-	fmt.Println("====================")
-	fmt.Println(asYaml)
-	fmt.Println("====================")
+	if convertIssues {
+		fmt.Println("ATTENTION: Some contents of the Jenkinsfile could not be converted. Please review the jenkins-x.yml for more information.")
+	}
 }
