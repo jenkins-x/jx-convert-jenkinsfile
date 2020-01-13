@@ -19,14 +19,14 @@ Download the `jx-convert-jenkinsfile` binary and place it in a directory in your
 ### Linux
 
 ```shell
-curl -L https://github.com/jenkins-x/jx-convert-jenkinsfile/releases/download/v{{.Version}}/jx-convert-jenkinsfile-linux-amd64.tar.gz | tar xzv 
+curl -L https://github.com/jenkins-x/jx-convert-jenkinsfile/releases/download/$(curl --silent https://api.github.com/repos/jenkins-x/jx-convert-jenkinsfile/releases/latest | jq -r '.tag_name')/jx-convert-jenkinsfile-linux-amd64.tar.gz | tar xzv 
 sudo mv jx-convert-jenkinsfile /usr/local/bin
 ```
 
 ### macOS
 
 ```shell
-curl -L https://github.com/jenkins-x/jx-convert-jenkinsfile/releases/download/v{{.Version}}/jx-convert-jenkinsfile-darwin-amd64.tar.gz | tar xzv 
+curl -L https://github.com/jenkins-x/jx-convert-jenkinsfile/releases/download/$(curl --silent https://api.github.com/repos/jenkins-x/jx-convert-jenkinsfile/releases/latest | jq -r '.tag_name')/jx-convert-jenkinsfile-darwin-amd64.tar.gz | tar xzv 
 sudo mv jx-convert-jenkinsfile /usr/local/bin
 ```
 
