@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/abayer/jx-convert-jenkinsfile/pkg/grammar"
+	"github.com/jenkins-x/jx-convert-jenkinsfile/pkg/grammar"
 
 	"github.com/jenkins-x/jx/pkg/config"
 	"github.com/jenkins-x/jx/pkg/util"

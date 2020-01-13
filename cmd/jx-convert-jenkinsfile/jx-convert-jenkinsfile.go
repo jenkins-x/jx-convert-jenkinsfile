@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/abayer/jx-convert-jenkinsfile/pkg/grammar"
+	"github.com/jenkins-x/jx-convert-jenkinsfile/pkg/grammar"
 )
 
 func main() {

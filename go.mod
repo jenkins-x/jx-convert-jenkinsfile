@@ -1,4 +1,4 @@
-module github.com/abayer/jx-convert-jenkinsfile
+module github.com/jenkins-x/jx-convert-jenkinsfile
 
 go 1.12
 

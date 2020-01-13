@@ -1,6 +1,5 @@
 NAME := jx-convert-jenkinsfile
-# TODO: Switch to jenkins-x
-ORG := abayer
+ORG := jenkins-x
 ORG_REPO := $(ORG)/$(NAME)
 RELEASE_ORG_REPO := $(ORG_REPO)
 ROOT_PACKAGE := github.com/$(ORG_REPO)
