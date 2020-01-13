@@ -82,10 +82,9 @@ test:
 
 .PHONY: release
 release: clean test cross
-	mkdir -p release
-	cp $(BUILD_DIR)/$(NAME)-* release
-	gh-release checksums sha256
-	gh-release create $(ORG)/$(NAME) $(VERSION) master v$(VERSION)
+	git fetch origin refs/tags/v$(VERSION)
+	jx step changelog --verbose --header-file=docs/dev/changelog-header.md --version=$(VERSION) --rev=$(PULL_BASE_SHA) --output-markdown=changelog.md --update-release=false
+	GITHUB_TOKEN=$(GITHUB_AUTH_TOKEN) REV=$(REVISION) BRANCH=$(BRANCH) BUILDDATE=$(BUILD_DATE) GOVERSION=$(GO_VERSION) ROOTPACKAGE=$(ROOT_PACKAGE) VERSION=$(VERSION) goreleaser release --config=.goreleaser.yml --rm-dist --release-notes=./changelog.md --skip-validate
 
 .PHONY: cross
 cross: darwin-build linux-build windows-build

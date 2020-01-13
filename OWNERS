@@ -1,1 +1,26 @@
-approvers
+approvers:
+- rawlingsj
+- jstrachan
+- ccojocar
+- garethjevans
+- pmuir
+- daveconde
+- hferentschik
+- abayer
+- cagiti
+- dgozalo
+- macox
+- romainverduci
+reviewers:
+- rawlingsj
+- jstrachan
+- ccojocar
+- garethjevans
+- pmuir
+- daveconde
+- hferentschik
+- abayer
+- cagiti
+- dgozalo
+- macox
+- romainverduci
