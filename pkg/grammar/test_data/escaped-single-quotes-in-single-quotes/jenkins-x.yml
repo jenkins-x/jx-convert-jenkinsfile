@@ -1,0 +1,33 @@
+buildPack: none
+pipelineConfig:
+  pipelines:
+    pullRequest:
+      pipeline:
+        stages:
+          - name: PR Build
+            agent:
+              image: maven
+            steps:
+              - name: step0
+                sh: make
+                image: jx
+                dir: charts/preview
+              - name: step1
+                sh: jx preview --namespace \'${PREVIEW_NAME}\' --name \'${PREVIEW_NAME}\' --release \'${PREVIEW_NAME}\' --app ${APP_NAME} --dir ../.. --verbose
+                image: jx
+                dir: charts/preview
+    release:
+      pipeline:
+        stages:
+          - name: Release Build
+            agent:
+              image: maven
+            steps:
+              - name: step0
+                sh: make
+                image: jx
+                dir: charts/preview
+              - name: step1
+                sh: jx preview --namespace \'${PREVIEW_NAME}\' --name \'${PREVIEW_NAME}\' --release \'${PREVIEW_NAME}\' --app ${APP_NAME} --dir ../.. --verbose
+                image: jx
+                dir: charts/preview

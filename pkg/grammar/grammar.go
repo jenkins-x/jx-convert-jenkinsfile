@@ -15,9 +15,13 @@ import (
 )
 
 const (
-	indent              = "  "
-	newlinePlaceholder  = "^^NEWLINE^^"
-	backtickPlaceholder = "^^BACKTICK^^"
+	indent                          = "  "
+	newlinePlaceholder              = "^^NEWLINE^^"
+	backtickPlaceholder             = "^^BACKTICK^^"
+	doubleQuotePlaceholder          = "^^DOUBLEQUOTE^^"
+	singleQuotePlaceholder          = "^^SINGLEQUOTE^^"
+	multilineDoubleQuotePlaceholder = "^^MULTILINEDOUBLE^^"
+	multilineSingleQuotePlaceholder = "^^MULTILINESINGLE^^"
 )
 
 var (
@@ -44,6 +48,9 @@ var (
 		"tools",
 		"input",
 		"options",
+	}
+	unsupportedAgentFields = []string{
+		"kubernetes",
 	}
 
 	// Fields that are explicitly supported in given contexts. Any other fields used in these contexts results in an error.
@@ -299,7 +306,7 @@ type ModelPipelineEntry struct {
 
 // ModelAgent represents the agent block in Declarative
 type ModelAgent struct {
-	Label string `"label" @String`
+	Label string `("label" | "kubernetes") @(String|RawString)`
 }
 
 // ToString converts the model to a rough string form
@@ -446,8 +453,15 @@ func (m *ModelStage) toImageAndSteps() (string, []string, bool) {
 					conversionIssues = true
 					singleStep = append(singleStep, linesForInvalidStep(s.step, "Named parameters to the Jenkins Pipeline sh step are not supported")...)
 				} else {
-					singleStep = append(singleStep, indentLine(fmt.Sprintf("sh: %s", s.step.getJxArg()), 8))
-
+					jxArgs := s.step.getJxArg()
+					if len(jxArgs) == 1 {
+						singleStep = append(singleStep, indentLine(fmt.Sprintf("sh: %s", jxArgs[0]), 8))
+					} else {
+						singleStep = append(singleStep, indentLine(fmt.Sprintf("sh: %s", jxArgs[0]), 8))
+						for _, argLine := range jxArgs[1:] {
+							singleStep = append(singleStep, indentLine(argLine, 9))
+						}
+					}
 					if s.image != image {
 						singleStep = append(singleStep, indentLine(fmt.Sprintf("image: %s", s.image), 8))
 					}
@@ -489,8 +503,12 @@ func linesForInvalidStep(step *ModelStep, reason string) []string {
 }
 
 func indentLine(line string, count int) string {
+	if strings.TrimSpace(line) == "" {
+		return line
+	}
 	return fmt.Sprintf("%s%s", strings.Repeat(indent, count), line)
 }
+
 func (m *ModelStage) getEnvironment() []*ModelEnvironmentEntry {
 	for _, e := range m.Entries {
 		if len(e.Environment) > 0 {
@@ -606,7 +624,7 @@ func (m *ModelStep) nestedStepsWithDirAndImage(baseDir string, baseImage string)
 	return steps
 }
 
-func (m *ModelStep) getJxArg() string {
+func (m *ModelStep) getJxArg() []string {
 	rawArg := m.getArg()
 	catWithDollarSign := regexp.MustCompile(`\\\$\(cat .*?VERSION\)`)
 	catWithBackticks := regexp.MustCompile("`cat VERSION`")
@@ -614,7 +632,10 @@ func (m *ModelStep) getJxArg() string {
 	fixedArg := catWithDollarSign.ReplaceAllString(rawArg, "${inputs.params.version}")
 	fixedArg = catWithBackticks.ReplaceAllString(fixedArg, "${inputs.params.version}")
 
-	return fixedArg
+	fixedArg = strings.ReplaceAll(fixedArg, doubleQuotePlaceholder, "\"")
+	fixedArg = strings.ReplaceAll(fixedArg, singleQuotePlaceholder, "'")
+
+	return toMultilineQuote(fixedArg)
 }
 
 func (m *ModelStep) getArg() string {
@@ -804,9 +825,12 @@ func ParseJenkinsfile(jenkinsfile string) (*Model, error) {
 	for _, b := range curlyBlocks {
 		replacedJF = escapeUnsupportedFieldsInContext(b, "steps", supportedSteps, replacedJF, false)
 		replacedJF = escapeUnsupportedFieldsInContext(b, "when", supportedWhenFields, replacedJF, false)
+		replacedJF = escapeUnsupportedFieldsInContext(b, "agent", unsupportedAgentFields, replacedJF, true)
 		replacedJF = escapeUnsupportedFieldsInContext(b, "stage", unsupportedStageFields, replacedJF, true)
 		replacedJF = escapeUnsupportedFieldsInContext(b, "pipeline", unsupportedTopLevelFields, replacedJF, true)
 	}
+
+	replacedJF = escapeSingleQuotedOrMultilineStrings(replacedJF)
 
 	parser, err := participle.Build(&Model{})
 	if err != nil {
@@ -840,7 +864,7 @@ func toEscapedFromCurlyString(curly string) string {
 	for _, l := range strings.Split(curly, "\n") {
 		if l != "" && wsPrefix == "" {
 			match := wsRegexp.FindStringSubmatch(l)
-			if match[1] != "" {
+			if len(match) > 0 && match[1] != "" {
 				wsPrefix = match[1]
 				if len(wsPrefix) > 2 {
 					wsPrefix = wsPrefix[2:]
@@ -854,11 +878,30 @@ func toEscapedFromCurlyString(curly string) string {
 	return escaped
 }
 
+func unescapeMultiline(escaped string) string {
+	unescaped := strings.ReplaceAll(escaped, newlinePlaceholder, "\n")
+	unescaped = strings.ReplaceAll(unescaped, "\\\\", "\\")
+	unescaped = strings.ReplaceAll(unescaped, backtickPlaceholder, "`")
+	return unescaped
+}
+
+func toMultilineQuote(escaped string) []string {
+	if strings.Contains(escaped, multilineSingleQuotePlaceholder) || strings.Contains(escaped, multilineDoubleQuotePlaceholder) {
+		unescaped := strings.ReplaceAll(escaped, multilineDoubleQuotePlaceholder, "")
+		unescaped = strings.ReplaceAll(unescaped, multilineSingleQuotePlaceholder, "")
+
+		var lines = []string{"|"}
+		for _, l := range strings.Split(unescapeMultiline(unescaped), "\n") {
+			lines = append(lines, strings.TrimSpace(l))
+		}
+		return lines
+	}
+
+	return []string{escaped}
+}
+
 func toCurlyStringFromEscaped(escaped string) string {
-	curly := strings.ReplaceAll(escaped, newlinePlaceholder, "\n")
-	curly = strings.ReplaceAll(curly, "\\\\", "\\")
-	curly = strings.ReplaceAll(curly, backtickPlaceholder, "`")
-	return "{" + curly + "}"
+	return "{" + unescapeMultiline(escaped) + "}"
 }
 
 type curlyBlock struct {
@@ -929,6 +972,115 @@ func GetBlocks(fullString string) []curlyBlock {
 	}
 
 	return blocks
+}
+
+func escapeSingleQuotedOrMultilineStrings(fullString string) string {
+	var stringsToReplace [][]string
+
+	// First replace ''' and """, ignoring nesting for the moment.
+	var reSingleQuoteMultiline = regexp.MustCompile(`(?s)'''(.*?)'''`)
+	var reDoubleQuoteMultiline = regexp.MustCompile(`(?s)"""(.*?)"""`)
+
+	for _, sqm := range reSingleQuoteMultiline.FindAllStringSubmatch(fullString, -1) {
+		fullString = strings.ReplaceAll(fullString, "'''"+sqm[1]+"'''", "'"+multilineSingleQuotePlaceholder+toEscapedFromCurlyString(sqm[1])+multilineSingleQuotePlaceholder+"'")
+	}
+
+	for _, dqm := range reDoubleQuoteMultiline.FindAllStringSubmatch(fullString, -1) {
+		fullString = strings.ReplaceAll(fullString, "\"\"\""+dqm[1]+"\"\"\"", "\""+multilineSingleQuotePlaceholder+toEscapedFromCurlyString(dqm[1])+multilineSingleQuotePlaceholder+"\"")
+	}
+
+	inDoubleQuote := false
+	inEscapeQuote := false
+
+	inSingleLineComment := false
+	inMultilineComment := false
+
+	strInSingleQuote := ""
+	sqReplacement := ""
+
+	for i, c := range fullString {
+		switch {
+		case c == '/':
+			if !inEscapeQuote && !inDoubleQuote && i > 0 && fullString[i-1] == '/' {
+				inSingleLineComment = true
+			} else if !inEscapeQuote && !inDoubleQuote && i > 0 && fullString[i-1] == '*' && inMultilineComment {
+				inMultilineComment = false
+			} else if inEscapeQuote && !inMultilineComment {
+				strInSingleQuote = strInSingleQuote + "/"
+				sqReplacement = sqReplacement + "/"
+			}
+		case c == '\n':
+			if inSingleLineComment {
+				inSingleLineComment = false
+			} else if inEscapeQuote {
+				strInSingleQuote = strInSingleQuote + "\n"
+				sqReplacement = sqReplacement + newlinePlaceholder
+			}
+		case c == '*':
+			if !inSingleLineComment && !inEscapeQuote && !inDoubleQuote && !inMultilineComment && i > 0 && fullString[i-1] == '/' {
+				inMultilineComment = true
+			} else if inEscapeQuote && !inSingleLineComment {
+				strInSingleQuote = strInSingleQuote + "*"
+				sqReplacement = sqReplacement + "*"
+			}
+		case c == '"':
+			if !inSingleLineComment && !inMultilineComment {
+				if !inEscapeQuote && !inDoubleQuote {
+					// Ignore escaped double quotes
+					if i < 1 || fullString[i-1] != '\\' {
+						inDoubleQuote = true
+					}
+				} else if !inEscapeQuote && inDoubleQuote {
+					// Ignore escaped double quotes
+					if i < 1 || fullString[i-1] != '\\' {
+						inDoubleQuote = false
+					}
+				} else if inEscapeQuote {
+					strInSingleQuote = strInSingleQuote + string(c)
+					// Allow escaped double quotes to stay as they are
+					if i > 0 && fullString[i-1] == '\\' {
+						sqReplacement = sqReplacement + string(c)
+					} else {
+						// Switch to a placeholder for non-escaped double quotes
+						sqReplacement = sqReplacement + doubleQuotePlaceholder
+					}
+				}
+			}
+		case c == '\'':
+			if !inSingleLineComment && !inMultilineComment {
+				if !inEscapeQuote && !inDoubleQuote {
+					// Ignore escaped single quotes
+					if i < 1 || fullString[i-1] != '\\' {
+						inEscapeQuote = true
+						strInSingleQuote = "'"
+						sqReplacement = "'"
+					}
+				} else if inEscapeQuote && !inDoubleQuote {
+					strInSingleQuote = strInSingleQuote + "'"
+					// Exit single quote for non-escaped single quotes
+					if i < 1 || fullString[i-1] != '\\' {
+						inEscapeQuote = false
+						sqReplacement = sqReplacement + "'"
+						stringsToReplace = append(stringsToReplace, []string{strInSingleQuote, sqReplacement})
+					} else {
+						sqReplacement = sqReplacement + "\\" + singleQuotePlaceholder
+					}
+				}
+			}
+			// If we're in a double quote, just ignore the single quote.
+		default:
+			if inEscapeQuote {
+				strInSingleQuote = strInSingleQuote + string(c)
+				sqReplacement = sqReplacement + string(c)
+			}
+		}
+	}
+
+	for _, sqString := range stringsToReplace {
+		fullString = strings.ReplaceAll(fullString, sqString[0], sqString[1])
+	}
+
+	return fullString
 }
 
 func isSupportedField(name string, fields []string, isBlacklist bool) bool {

@@ -3,7 +3,7 @@ module github.com/jenkins-x/jx-convert-jenkinsfile
 go 1.12
 
 require (
-	github.com/alecthomas/participle v0.4.1
+	github.com/alecthomas/participle v0.4.2-0.20200112215025-167f2015189d
 	github.com/blang/semver v3.5.1+incompatible
 	github.com/jenkins-x/jx v0.0.0-20191206153325-7bde8a5b439a
 	github.com/pkg/errors v0.8.1
