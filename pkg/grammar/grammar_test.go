@@ -83,6 +83,10 @@ func TestParsingGrammar(t *testing.T) {
 			name:            "agent_yaml_block",
 			noConvertIssues: true,
 		},
+		{
+			name:            "container_with_named_args",
+			noConvertIssues: true,
+		},
 	}
 
 	for _, tt := range testCases {

@@ -413,6 +413,20 @@ type ModelStage struct {
 	Entries []*ModelStageEntry `"{" { @@ } "}"`
 }
 
+func imageFromContainerStep(step *ModelStep) string {
+	if len(step.Args) == 1 {
+		return step.getArg()
+	} else {
+		for _, a := range step.Args {
+			if a.Named != nil && a.Named.Key == "name" && a.Named.Value != nil {
+				return removeQuotesAndTrim(a.Named.Value.ToString())
+			}
+		}
+	}
+
+	return "maven"
+}
+
 // toImageAndSteps converts the model to jenkins-x.yml representation
 func (m *ModelStage) toImageAndSteps() (string, []string, bool) {
 	var stepLines []string
@@ -425,7 +439,7 @@ func (m *ModelStage) toImageAndSteps() (string, []string, bool) {
 	image := "maven"
 
 	if len(m.getSteps()) > 0 && m.getSteps()[0].Name == "container" {
-		image = m.getSteps()[0].getArg()
+		image = imageFromContainerStep(m.getSteps()[0])
 	}
 	for _, s := range m.getSteps() {
 		baseSteps = append(baseSteps, s.nestedStepsWithDirAndImage("", image)...)
@@ -615,7 +629,7 @@ func (m *ModelStep) nestedStepsWithDirAndImage(baseDir string, baseImage string)
 		if m.Name == "dir" {
 			baseDir = strings.Trim(m.getArg(), "./")
 		} else if m.Name == "container" {
-			baseImage = m.getArg()
+			baseImage = imageFromContainerStep(m)
 		}
 		for _, s := range m.NestedSteps {
 			steps = append(steps, s.nestedStepsWithDirAndImage(baseDir, baseImage)...)
@@ -640,9 +654,13 @@ func (m *ModelStep) getJxArg() []string {
 
 func (m *ModelStep) getArg() string {
 	if len(m.Args) == 1 {
-		return strings.Trim(m.Args[0].ToString(), "\"")
+		return removeQuotesAndTrim(m.Args[0].ToString())
 	}
 	return ""
+}
+
+func removeQuotesAndTrim(in string) string {
+	return strings.Trim(in, "\"")
 }
 
 func (m *ModelStep) shouldRemove() bool {

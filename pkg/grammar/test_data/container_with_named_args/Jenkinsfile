@@ -1,0 +1,13 @@
+pipeline {
+    stages {
+        stage('stage') {
+            steps {
+                container(name: 'kaniko', shell: '/busybox/sh') {
+                    sh '''#!/busybox/sh
+                    /kaniko/executor -c `pwd` --destination=${DOCKER_REPOSITORY}:${PREVIEW_VERSION}
+                    '''
+                }
+            }
+        }
+    }
+}
