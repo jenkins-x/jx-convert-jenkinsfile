@@ -87,6 +87,10 @@ func TestParsingGrammar(t *testing.T) {
 			name:            "container_with_named_args",
 			noConvertIssues: true,
 		},
+		{
+			name:            "other_credentials",
+			noConvertIssues: true,
+		},
 	}
 
 	for _, tt := range testCases {

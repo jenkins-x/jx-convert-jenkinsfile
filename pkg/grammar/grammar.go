@@ -124,6 +124,15 @@ func (m *Model) getUnsupported() []*UnsupportedModelBlock {
 	return nil
 }
 
+func containsRealEnvLines(lines []string) bool {
+	for _, l := range lines {
+		if !strings.HasPrefix(l, "#") {
+			return true
+		}
+	}
+	return false
+}
+
 // ToYaml converts the Jenkinsfile model into jenkins-x.yml
 func (m *Model) ToYaml() (string, bool, error) {
 	var lines []string
@@ -137,9 +146,14 @@ func (m *Model) ToYaml() (string, bool, error) {
 		return "", conversionIssues, err
 	}
 	if len(envLines) > 0 {
-		lines = append(lines, indentLine("env:", 1))
+		realEnvLines := containsRealEnvLines(envLines)
+		envLineIndent := 1
+		if realEnvLines {
+			lines = append(lines, indentLine("env:", 1))
+			envLineIndent = 2
+		}
 		for _, envLine := range envLines {
-			lines = append(lines, indentLine(envLine, 2))
+			lines = append(lines, indentLine(envLine, envLineIndent))
 		}
 	}
 
@@ -263,9 +277,14 @@ func prOrReleasePipelineAsYAML(stages []*ModelStage, isRelease bool) (string, bo
 		return "", conversionIssues, err
 	}
 	if len(envYamlLines) > 0 {
-		lines = append(lines, indentLine("environment:", 6))
+		realEnvLines := containsRealEnvLines(envYamlLines)
+		envLineIndent := 6
+		if realEnvLines {
+			lines = append(lines, indentLine("environment:", 6))
+			envLineIndent = 7
+		}
 		for _, l := range envYamlLines {
-			lines = append(lines, indentLine(l, 7))
+			lines = append(lines, indentLine(l, envLineIndent))
 		}
 	}
 	lines = append(lines, indentLine("steps:", 6))
@@ -332,7 +351,7 @@ func toEnvYamlLines(modelVars []*ModelEnvironmentEntry) ([]string, error) {
 		}
 	}
 	if len(envVars) == 0 {
-		return nil, nil
+		return invalidVars, nil
 	}
 	envYamlBytes, err := yaml.Marshal(envVars)
 	if err != nil {
@@ -381,6 +400,8 @@ func (m *ModelEnvironmentEntry) ToJXEnv() ([]corev1.EnvVar, bool) {
 					},
 				},
 			}, false
+		} else {
+			return nil, true
 		}
 	}
 

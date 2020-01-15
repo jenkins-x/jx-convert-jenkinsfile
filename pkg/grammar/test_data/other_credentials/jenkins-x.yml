@@ -1,18 +1,6 @@
 buildPack: none
 pipelineConfig:
-  env:
-    - name: ORG
-      value: REPLACE_ME_ORG
-    - name: CHARTMUSEUM_CREDS_USR
-      valueFrom:
-        secretKeyRef:
-          key: BASIC_AUTH_USER
-          name: jenkins-x-chartmuseum
-    - name: CHARTMUSEUM_CREDS_PSW
-      valueFrom:
-        secretKeyRef:
-          key: BASIC_AUTH_PASS
-          name: jenkins-x-chartmuseum
+  # The variable 'SOME_CREDS' has the value 'something', which cannot be converted.
   pipelines:
     pullRequest:
       pipeline:
@@ -20,6 +8,7 @@ pipelineConfig:
           - name: PR Build
             agent:
               image: maven
+            # The variable 'PREVIEW_NAMESPACE' has the value '$APP_NAME-$BRANCH_NAME', which cannot be converted.
             # The variable 'HELM_RELEASE' has the value '$PREVIEW_NAMESPACE', which cannot be converted.
             steps:
               - name: step0
@@ -44,35 +33,17 @@ pipelineConfig:
               image: maven
             steps:
               - name: step0
-                # The Jenkins Pipeline step script cannot be translated directly.
-                # You may want to consider adding a shell script to your repository that replicates its behavior.
-                # Original step from Jenkinsfile:
-                # script {
-                #   retry(5) {
-                #     sh "echo \$(jx-release-version) > VERSION"
-                #     sh "mvn versions:set -DnewVersion=\$(cat VERSION)"
-                #     sh "jx step tag --version \$(cat VERSION)"
-                #   }
-                # }
-                sh: echo 'Invalid step script, failing' && exit 1
-              - name: step1
                 sh: mvn clean deploy
-              - name: step2
+              - name: step1
                 sh: export VERSION=${inputs.params.version} && skaffold build -f skaffold.yaml
-              - name: step3
+              - name: step2
                 sh: jx step post build --image $DOCKER_REGISTRY/$ORG/$APP_NAME:${inputs.params.version}
-              - name: step4
+              - name: step3
                 sh: jx step changelog --version v${inputs.params.version}
                 dir: charts/REPLACE_ME_APP_NAME
+              - name: step4
+                sh: jx step helm release
+                dir: charts/REPLACE_ME_APP_NAME
               - name: step5
-                # The Jenkins Pipeline step script cannot be translated directly.
-                # You may want to consider adding a shell script to your repository that replicates its behavior.
-                # Original step from Jenkinsfile:
-                # script {
-                #   // release the helm chart
-                #   sh "jx step helm release"
-                # }
-                sh: echo 'Invalid step script, failing' && exit 1
-              - name: step6
                 sh: jx promote -b --all-auto --timeout 1h --version ${inputs.params.version}
                 dir: charts/REPLACE_ME_APP_NAME
