@@ -63,6 +63,34 @@ func TestParsingGrammar(t *testing.T) {
 		{
 			name: "invalid_sh_calls",
 		},
+		{
+			name:            "double-quotes-in-single-quotes",
+			noConvertIssues: true,
+		},
+		{
+			name:            "escaped-single-quotes-in-single-quotes",
+			noConvertIssues: true,
+		},
+		{
+			name:            "single-quote-multiline",
+			noConvertIssues: true,
+		},
+		{
+			name:            "double-quote-multiline",
+			noConvertIssues: true,
+		},
+		{
+			name:            "agent_yaml_block",
+			noConvertIssues: true,
+		},
+		{
+			name:            "container_with_named_args",
+			noConvertIssues: true,
+		},
+		{
+			name:            "other_credentials",
+			noConvertIssues: true,
+		},
 	}
 
 	for _, tt := range testCases {
@@ -76,9 +104,9 @@ func TestParsingGrammar(t *testing.T) {
 			model, err := grammar.ParseJenkinsfile(jf)
 			if tt.parseError != "" {
 				assert.Contains(t, err.Error(), tt.parseError)
-			} else {
+			} else if err != nil {
 				assert.NoError(t, err)
-
+			} else {
 				asYaml, convertIssues, err := model.ToYaml()
 				assert.NoError(t, err)
 

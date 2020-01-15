@@ -1,0 +1,27 @@
+buildPack: none
+pipelineConfig:
+  pipelines:
+    pullRequest:
+      pipeline:
+        stages:
+          - name: PR Build
+            agent:
+              image: kaniko
+            steps:
+              - name: step0
+                sh: |
+                  #!/busybox/sh
+                  /kaniko/executor -c `pwd` --destination=${DOCKER_REPOSITORY}:${PREVIEW_VERSION}
+
+    release:
+      pipeline:
+        stages:
+          - name: Release Build
+            agent:
+              image: kaniko
+            steps:
+              - name: step0
+                sh: |
+                  #!/busybox/sh
+                  /kaniko/executor -c `pwd` --destination=${DOCKER_REPOSITORY}:${PREVIEW_VERSION}
+

@@ -36,3 +36,8 @@ You can now invoke the tool by running `jx convert jenkinsfile`.
 
 Run `jx convert jenkinsfile`, optionally specifying `--dir ...` to look for the `Jenkinsfile` in a different
 directory than the current one. 
+
+## Reporting issues
+
+Please [create an issue in the jx project](https://github.com/jenkins-x/jx/issues/new) with the `area/jenkinsfile-converter` label for any issues or
+feature requests for this tool.

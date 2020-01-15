@@ -1,0 +1,14 @@
+pipeline {
+    stages {
+        stage('stage') {
+            steps {
+                dir ('./charts/preview') {
+                    container('jx') {
+                        sh 'make'
+                        sh 'jx preview --namespace "${PREVIEW_NAME}" --name "${PREVIEW_NAME}" --release "${PREVIEW_NAME}" --app ${APP_NAME} --dir ../.. --verbose'
+                    }
+                }
+            }
+        }
+    }
+}

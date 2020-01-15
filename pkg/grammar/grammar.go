@@ -15,9 +15,13 @@ import (
 )
 
 const (
-	indent              = "  "
-	newlinePlaceholder  = "^^NEWLINE^^"
-	backtickPlaceholder = "^^BACKTICK^^"
+	indent                          = "  "
+	newlinePlaceholder              = "^^NEWLINE^^"
+	backtickPlaceholder             = "^^BACKTICK^^"
+	doubleQuotePlaceholder          = "^^DOUBLEQUOTE^^"
+	singleQuotePlaceholder          = "^^SINGLEQUOTE^^"
+	multilineDoubleQuotePlaceholder = "^^MULTILINEDOUBLE^^"
+	multilineSingleQuotePlaceholder = "^^MULTILINESINGLE^^"
 )
 
 var (
@@ -44,6 +48,9 @@ var (
 		"tools",
 		"input",
 		"options",
+	}
+	unsupportedAgentFields = []string{
+		"kubernetes",
 	}
 
 	// Fields that are explicitly supported in given contexts. Any other fields used in these contexts results in an error.
@@ -117,6 +124,15 @@ func (m *Model) getUnsupported() []*UnsupportedModelBlock {
 	return nil
 }
 
+func containsRealEnvLines(lines []string) bool {
+	for _, l := range lines {
+		if !strings.HasPrefix(l, "#") {
+			return true
+		}
+	}
+	return false
+}
+
 // ToYaml converts the Jenkinsfile model into jenkins-x.yml
 func (m *Model) ToYaml() (string, bool, error) {
 	var lines []string
@@ -130,9 +146,14 @@ func (m *Model) ToYaml() (string, bool, error) {
 		return "", conversionIssues, err
 	}
 	if len(envLines) > 0 {
-		lines = append(lines, indentLine("env:", 1))
+		realEnvLines := containsRealEnvLines(envLines)
+		envLineIndent := 1
+		if realEnvLines {
+			lines = append(lines, indentLine("env:", 1))
+			envLineIndent = 2
+		}
 		for _, envLine := range envLines {
-			lines = append(lines, indentLine(envLine, 2))
+			lines = append(lines, indentLine(envLine, envLineIndent))
 		}
 	}
 
@@ -256,9 +277,14 @@ func prOrReleasePipelineAsYAML(stages []*ModelStage, isRelease bool) (string, bo
 		return "", conversionIssues, err
 	}
 	if len(envYamlLines) > 0 {
-		lines = append(lines, indentLine("environment:", 6))
+		realEnvLines := containsRealEnvLines(envYamlLines)
+		envLineIndent := 6
+		if realEnvLines {
+			lines = append(lines, indentLine("environment:", 6))
+			envLineIndent = 7
+		}
 		for _, l := range envYamlLines {
-			lines = append(lines, indentLine(l, 7))
+			lines = append(lines, indentLine(l, envLineIndent))
 		}
 	}
 	lines = append(lines, indentLine("steps:", 6))
@@ -299,7 +325,7 @@ type ModelPipelineEntry struct {
 
 // ModelAgent represents the agent block in Declarative
 type ModelAgent struct {
-	Label string `"label" @String`
+	Label string `("label" | "kubernetes") @(String|RawString)`
 }
 
 // ToString converts the model to a rough string form
@@ -325,7 +351,7 @@ func toEnvYamlLines(modelVars []*ModelEnvironmentEntry) ([]string, error) {
 		}
 	}
 	if len(envVars) == 0 {
-		return nil, nil
+		return invalidVars, nil
 	}
 	envYamlBytes, err := yaml.Marshal(envVars)
 	if err != nil {
@@ -374,6 +400,8 @@ func (m *ModelEnvironmentEntry) ToJXEnv() ([]corev1.EnvVar, bool) {
 					},
 				},
 			}, false
+		} else {
+			return nil, true
 		}
 	}
 
@@ -406,6 +434,20 @@ type ModelStage struct {
 	Entries []*ModelStageEntry `"{" { @@ } "}"`
 }
 
+func imageFromContainerStep(step *ModelStep) string {
+	if len(step.Args) == 1 {
+		return step.getArg()
+	} else {
+		for _, a := range step.Args {
+			if a.Named != nil && a.Named.Key == "name" && a.Named.Value != nil {
+				return removeQuotesAndTrim(a.Named.Value.ToString())
+			}
+		}
+	}
+
+	return "maven"
+}
+
 // toImageAndSteps converts the model to jenkins-x.yml representation
 func (m *ModelStage) toImageAndSteps() (string, []string, bool) {
 	var stepLines []string
@@ -418,7 +460,7 @@ func (m *ModelStage) toImageAndSteps() (string, []string, bool) {
 	image := "maven"
 
 	if len(m.getSteps()) > 0 && m.getSteps()[0].Name == "container" {
-		image = m.getSteps()[0].getArg()
+		image = imageFromContainerStep(m.getSteps()[0])
 	}
 	for _, s := range m.getSteps() {
 		baseSteps = append(baseSteps, s.nestedStepsWithDirAndImage("", image)...)
@@ -446,8 +488,15 @@ func (m *ModelStage) toImageAndSteps() (string, []string, bool) {
 					conversionIssues = true
 					singleStep = append(singleStep, linesForInvalidStep(s.step, "Named parameters to the Jenkins Pipeline sh step are not supported")...)
 				} else {
-					singleStep = append(singleStep, indentLine(fmt.Sprintf("sh: %s", s.step.getJxArg()), 8))
-
+					jxArgs := s.step.getJxArg()
+					if len(jxArgs) == 1 {
+						singleStep = append(singleStep, indentLine(fmt.Sprintf("sh: %s", jxArgs[0]), 8))
+					} else {
+						singleStep = append(singleStep, indentLine(fmt.Sprintf("sh: %s", jxArgs[0]), 8))
+						for _, argLine := range jxArgs[1:] {
+							singleStep = append(singleStep, indentLine(argLine, 9))
+						}
+					}
 					if s.image != image {
 						singleStep = append(singleStep, indentLine(fmt.Sprintf("image: %s", s.image), 8))
 					}
@@ -489,8 +538,12 @@ func linesForInvalidStep(step *ModelStep, reason string) []string {
 }
 
 func indentLine(line string, count int) string {
+	if strings.TrimSpace(line) == "" {
+		return line
+	}
 	return fmt.Sprintf("%s%s", strings.Repeat(indent, count), line)
 }
+
 func (m *ModelStage) getEnvironment() []*ModelEnvironmentEntry {
 	for _, e := range m.Entries {
 		if len(e.Environment) > 0 {
@@ -597,7 +650,7 @@ func (m *ModelStep) nestedStepsWithDirAndImage(baseDir string, baseImage string)
 		if m.Name == "dir" {
 			baseDir = strings.Trim(m.getArg(), "./")
 		} else if m.Name == "container" {
-			baseImage = m.getArg()
+			baseImage = imageFromContainerStep(m)
 		}
 		for _, s := range m.NestedSteps {
 			steps = append(steps, s.nestedStepsWithDirAndImage(baseDir, baseImage)...)
@@ -606,7 +659,7 @@ func (m *ModelStep) nestedStepsWithDirAndImage(baseDir string, baseImage string)
 	return steps
 }
 
-func (m *ModelStep) getJxArg() string {
+func (m *ModelStep) getJxArg() []string {
 	rawArg := m.getArg()
 	catWithDollarSign := regexp.MustCompile(`\\\$\(cat .*?VERSION\)`)
 	catWithBackticks := regexp.MustCompile("`cat VERSION`")
@@ -614,14 +667,21 @@ func (m *ModelStep) getJxArg() string {
 	fixedArg := catWithDollarSign.ReplaceAllString(rawArg, "${inputs.params.version}")
 	fixedArg = catWithBackticks.ReplaceAllString(fixedArg, "${inputs.params.version}")
 
-	return fixedArg
+	fixedArg = strings.ReplaceAll(fixedArg, doubleQuotePlaceholder, "\"")
+	fixedArg = strings.ReplaceAll(fixedArg, singleQuotePlaceholder, "'")
+
+	return toMultilineQuote(fixedArg)
 }
 
 func (m *ModelStep) getArg() string {
 	if len(m.Args) == 1 {
-		return strings.Trim(m.Args[0].ToString(), "\"")
+		return removeQuotesAndTrim(m.Args[0].ToString())
 	}
 	return ""
+}
+
+func removeQuotesAndTrim(in string) string {
+	return strings.Trim(in, "\"")
 }
 
 func (m *ModelStep) shouldRemove() bool {
@@ -804,9 +864,12 @@ func ParseJenkinsfile(jenkinsfile string) (*Model, error) {
 	for _, b := range curlyBlocks {
 		replacedJF = escapeUnsupportedFieldsInContext(b, "steps", supportedSteps, replacedJF, false)
 		replacedJF = escapeUnsupportedFieldsInContext(b, "when", supportedWhenFields, replacedJF, false)
+		replacedJF = escapeUnsupportedFieldsInContext(b, "agent", unsupportedAgentFields, replacedJF, true)
 		replacedJF = escapeUnsupportedFieldsInContext(b, "stage", unsupportedStageFields, replacedJF, true)
 		replacedJF = escapeUnsupportedFieldsInContext(b, "pipeline", unsupportedTopLevelFields, replacedJF, true)
 	}
+
+	replacedJF = escapeSingleQuotedOrMultilineStrings(replacedJF)
 
 	parser, err := participle.Build(&Model{})
 	if err != nil {
@@ -840,7 +903,7 @@ func toEscapedFromCurlyString(curly string) string {
 	for _, l := range strings.Split(curly, "\n") {
 		if l != "" && wsPrefix == "" {
 			match := wsRegexp.FindStringSubmatch(l)
-			if match[1] != "" {
+			if len(match) > 0 && match[1] != "" {
 				wsPrefix = match[1]
 				if len(wsPrefix) > 2 {
 					wsPrefix = wsPrefix[2:]
@@ -854,11 +917,30 @@ func toEscapedFromCurlyString(curly string) string {
 	return escaped
 }
 
+func unescapeMultiline(escaped string) string {
+	unescaped := strings.ReplaceAll(escaped, newlinePlaceholder, "\n")
+	unescaped = strings.ReplaceAll(unescaped, "\\\\", "\\")
+	unescaped = strings.ReplaceAll(unescaped, backtickPlaceholder, "`")
+	return unescaped
+}
+
+func toMultilineQuote(escaped string) []string {
+	if strings.Contains(escaped, multilineSingleQuotePlaceholder) || strings.Contains(escaped, multilineDoubleQuotePlaceholder) {
+		unescaped := strings.ReplaceAll(escaped, multilineDoubleQuotePlaceholder, "")
+		unescaped = strings.ReplaceAll(unescaped, multilineSingleQuotePlaceholder, "")
+
+		var lines = []string{"|"}
+		for _, l := range strings.Split(unescapeMultiline(unescaped), "\n") {
+			lines = append(lines, strings.TrimSpace(l))
+		}
+		return lines
+	}
+
+	return []string{escaped}
+}
+
 func toCurlyStringFromEscaped(escaped string) string {
-	curly := strings.ReplaceAll(escaped, newlinePlaceholder, "\n")
-	curly = strings.ReplaceAll(curly, "\\\\", "\\")
-	curly = strings.ReplaceAll(curly, backtickPlaceholder, "`")
-	return "{" + curly + "}"
+	return "{" + unescapeMultiline(escaped) + "}"
 }
 
 type curlyBlock struct {
@@ -929,6 +1011,115 @@ func GetBlocks(fullString string) []curlyBlock {
 	}
 
 	return blocks
+}
+
+func escapeSingleQuotedOrMultilineStrings(fullString string) string {
+	var stringsToReplace [][]string
+
+	// First replace ''' and """, ignoring nesting for the moment.
+	var reSingleQuoteMultiline = regexp.MustCompile(`(?s)'''(.*?)'''`)
+	var reDoubleQuoteMultiline = regexp.MustCompile(`(?s)"""(.*?)"""`)
+
+	for _, sqm := range reSingleQuoteMultiline.FindAllStringSubmatch(fullString, -1) {
+		fullString = strings.ReplaceAll(fullString, "'''"+sqm[1]+"'''", "'"+multilineSingleQuotePlaceholder+toEscapedFromCurlyString(sqm[1])+multilineSingleQuotePlaceholder+"'")
+	}
+
+	for _, dqm := range reDoubleQuoteMultiline.FindAllStringSubmatch(fullString, -1) {
+		fullString = strings.ReplaceAll(fullString, "\"\"\""+dqm[1]+"\"\"\"", "\""+multilineSingleQuotePlaceholder+toEscapedFromCurlyString(dqm[1])+multilineSingleQuotePlaceholder+"\"")
+	}
+
+	inDoubleQuote := false
+	inEscapeQuote := false
+
+	inSingleLineComment := false
+	inMultilineComment := false
+
+	strInSingleQuote := ""
+	sqReplacement := ""
+
+	for i, c := range fullString {
+		switch {
+		case c == '/':
+			if !inEscapeQuote && !inDoubleQuote && i > 0 && fullString[i-1] == '/' {
+				inSingleLineComment = true
+			} else if !inEscapeQuote && !inDoubleQuote && i > 0 && fullString[i-1] == '*' && inMultilineComment {
+				inMultilineComment = false
+			} else if inEscapeQuote && !inMultilineComment {
+				strInSingleQuote = strInSingleQuote + "/"
+				sqReplacement = sqReplacement + "/"
+			}
+		case c == '\n':
+			if inSingleLineComment {
+				inSingleLineComment = false
+			} else if inEscapeQuote {
+				strInSingleQuote = strInSingleQuote + "\n"
+				sqReplacement = sqReplacement + newlinePlaceholder
+			}
+		case c == '*':
+			if !inSingleLineComment && !inEscapeQuote && !inDoubleQuote && !inMultilineComment && i > 0 && fullString[i-1] == '/' {
+				inMultilineComment = true
+			} else if inEscapeQuote && !inSingleLineComment {
+				strInSingleQuote = strInSingleQuote + "*"
+				sqReplacement = sqReplacement + "*"
+			}
+		case c == '"':
+			if !inSingleLineComment && !inMultilineComment {
+				if !inEscapeQuote && !inDoubleQuote {
+					// Ignore escaped double quotes
+					if i < 1 || fullString[i-1] != '\\' {
+						inDoubleQuote = true
+					}
+				} else if !inEscapeQuote && inDoubleQuote {
+					// Ignore escaped double quotes
+					if i < 1 || fullString[i-1] != '\\' {
+						inDoubleQuote = false
+					}
+				} else if inEscapeQuote {
+					strInSingleQuote = strInSingleQuote + string(c)
+					// Allow escaped double quotes to stay as they are
+					if i > 0 && fullString[i-1] == '\\' {
+						sqReplacement = sqReplacement + string(c)
+					} else {
+						// Switch to a placeholder for non-escaped double quotes
+						sqReplacement = sqReplacement + doubleQuotePlaceholder
+					}
+				}
+			}
+		case c == '\'':
+			if !inSingleLineComment && !inMultilineComment {
+				if !inEscapeQuote && !inDoubleQuote {
+					// Ignore escaped single quotes
+					if i < 1 || fullString[i-1] != '\\' {
+						inEscapeQuote = true
+						strInSingleQuote = "'"
+						sqReplacement = "'"
+					}
+				} else if inEscapeQuote && !inDoubleQuote {
+					strInSingleQuote = strInSingleQuote + "'"
+					// Exit single quote for non-escaped single quotes
+					if i < 1 || fullString[i-1] != '\\' {
+						inEscapeQuote = false
+						sqReplacement = sqReplacement + "'"
+						stringsToReplace = append(stringsToReplace, []string{strInSingleQuote, sqReplacement})
+					} else {
+						sqReplacement = sqReplacement + "\\" + singleQuotePlaceholder
+					}
+				}
+			}
+			// If we're in a double quote, just ignore the single quote.
+		default:
+			if inEscapeQuote {
+				strInSingleQuote = strInSingleQuote + string(c)
+				sqReplacement = sqReplacement + string(c)
+			}
+		}
+	}
+
+	for _, sqString := range stringsToReplace {
+		fullString = strings.ReplaceAll(fullString, sqString[0], sqString[1])
+	}
+
+	return fullString
 }
 
 func isSupportedField(name string, fields []string, isBlacklist bool) bool {

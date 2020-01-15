@@ -1,4 +1,4 @@
-To install jx-convert-jenkinsfile {{.Version}} see the below. To run, see [the project's README](https://github.com/jenkins-x/jx-convert-jenkinsfile/README.md)
+To install jx-convert-jenkinsfile {{.Version}} see the below. To run, see [the project's README](https://github.com/jenkins-x/jx-convert-jenkinsfile/blob/v{{.Version}}/README.md).
 
 ### Linux
 

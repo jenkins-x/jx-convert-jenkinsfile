@@ -20,6 +20,8 @@ pipelineConfig:
           - name: PR Build
             agent:
               image: maven
+            # The variable 'PREVIEW_NAMESPACE' has the value '$APP_NAME-$BRANCH_NAME', which cannot be converted.
+            # The variable 'HELM_RELEASE' has the value '$PREVIEW_NAMESPACE', which cannot be converted.
             steps:
               - name: step0
                 sh: mvn versions:set -DnewVersion=$PREVIEW_VERSION
